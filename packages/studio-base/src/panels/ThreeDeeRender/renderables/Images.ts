@@ -106,7 +106,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 }
 
 export class Images extends SceneExtension<ImageRenderable> {
-  /* All of the CameraInfo topics we have received at least one message on. */
+  /* All known camera info topics */
   private cameraInfoTopics = new Set<string>();
   /**
    * A bi-directional mapping between cameraInfo topics and image topics. This
@@ -114,6 +114,9 @@ export class Images extends SceneExtension<ImageRenderable> {
    * topic, when receiving a camera info message.
    */
   private cameraInfoToImageTopics = new MultiMap<string, string>();
+
+  /** Map of camera info topic name -> PinholeCameraModel */
+  private cameraModelsByTopic = new Map<string, PinholeCameraModel>();
 
   public constructor(renderer: Renderer) {
     super("foxglove.Images", renderer);
@@ -308,26 +311,33 @@ export class Images extends SceneExtension<ImageRenderable> {
     const settings = renderable.userData.settings;
     if (settings.cameraInfoTopic == undefined) {
       autoSelectCameraInfoTopic(settings, imageTopic, this.cameraInfoTopics);
-      const newCameraInfoTopic = settings.cameraInfoTopic as string | undefined;
-      if (newCameraInfoTopic != undefined) {
-        this.cameraInfoToImageTopics.set(newCameraInfoTopic, imageTopic);
-        // Update user settings with the newly selected CameraInfo topic
-        this.renderer.updateConfig((draft) => {
-          const updatedUserSettings = { ...settings };
-          updatedUserSettings.cameraInfoTopic = newCameraInfoTopic;
-          draft.topics[imageTopic] = updatedUserSettings;
-        });
-        this.updateSettingsTree();
-      } else {
-        this.renderer.settings.errors.addToTopic(
-          imageTopic,
-          NO_CAMERA_INFO_ERR,
-          "No CameraInfo topic found",
-        );
-      }
     }
 
-    const cameraModel = renderable.userData.cameraModel;
+    const newCameraInfoTopic = settings.cameraInfoTopic;
+    if (newCameraInfoTopic != undefined) {
+      this.cameraInfoToImageTopics.set(newCameraInfoTopic, imageTopic);
+      // Update user settings with the newly selected CameraInfo topic
+      this.renderer.updateConfig((draft) => {
+        const updatedUserSettings = { ...settings };
+        updatedUserSettings.cameraInfoTopic = newCameraInfoTopic;
+        draft.topics[imageTopic] = updatedUserSettings;
+      });
+      this.updateSettingsTree();
+    } else {
+      this.renderer.settings.errors.addToTopic(
+        imageTopic,
+        NO_CAMERA_INFO_ERR,
+        "No CameraInfo topic found",
+      );
+    }
+
+    // fixme - ternary hard to read
+    const cameraModel =
+      renderable.userData.cameraModel ??
+      (newCameraInfoTopic != undefined
+        ? this.cameraModelsByTopic.get(newCameraInfoTopic)
+        : undefined);
+
     if (cameraModel) {
       this._updateImageRenderable(renderable, image, cameraModel, receiveTime, settings);
     }
@@ -336,6 +346,9 @@ export class Images extends SceneExtension<ImageRenderable> {
   private handleCameraInfo = (
     messageEvent: PartialMessageEvent<CameraInfo> & PartialMessageEvent<CameraCalibration>,
   ): void => {
+    // fixme - in what situation is this needed?
+    this._updateTopicInfoIfNeeded();
+
     const cameraInfoTopic = messageEvent.topic;
     const receiveTime = toNanoSec(messageEvent.receiveTime);
 
@@ -344,6 +357,19 @@ export class Images extends SceneExtension<ImageRenderable> {
       this.cameraInfoTopics.add(cameraInfoTopic);
     }
     const cameraInfo = normalizeCameraInfo(messageEvent.message);
+
+    // create a camera model for the incoming camera info topic
+    // fixme - this is expensive any we don't need to do this if the model already exists?
+    // there is some logic to track camera info messages and determine if they are equal to avoid making the model
+    //         const dataEqual = cameraInfosEqual(renderable.userData.cameraInfo, cameraInfo);
+    try {
+      const cameraModel = new PinholeCameraModel(cameraInfo);
+      this.cameraModelsByTopic.set(messageEvent.topic, cameraModel);
+    } catch (errUnk) {
+      const err = errUnk as Error;
+      this.renderer.settings.errors.addToTopic(messageEvent.topic, CAMERA_MODEL, err.message);
+    }
+
     const frameId = cameraInfo.header.frame_id;
     // Check if we have a mapping from this CameraInfo topic to an Image topic
     const imageTopics = this.cameraInfoToImageTopics.get(cameraInfoTopic);
@@ -353,20 +379,22 @@ export class Images extends SceneExtension<ImageRenderable> {
         const renderable = this._getImageRenderable(imageTopic, receiveTime, undefined, frameId);
 
         const dataEqual = cameraInfosEqual(renderable.userData.cameraInfo, cameraInfo);
-        if (!dataEqual) {
-          try {
-            const cameraModel = new PinholeCameraModel(cameraInfo);
-            renderable.userData.cameraModel = cameraModel;
-            if (renderable.userData.image) {
-              const { image, settings } = renderable.userData;
-              this._updateImageRenderable(renderable, image, cameraModel, receiveTime, settings);
-            }
-            this.renderer.settings.errors.removeFromTopic(imageTopic, CAMERA_MODEL);
-          } catch (errUnk) {
-            const err = errUnk as Error;
-            this.renderer.settings.errors.addToTopic(imageTopic, CAMERA_MODEL, err.message);
-            renderable.userData.cameraModel = undefined;
+        if (dataEqual) {
+          continue;
+        }
+
+        try {
+          const cameraModel = new PinholeCameraModel(cameraInfo);
+          renderable.userData.cameraModel = cameraModel;
+          if (renderable.userData.image) {
+            const { image, settings } = renderable.userData;
+            this._updateImageRenderable(renderable, image, cameraModel, receiveTime, settings);
           }
+          this.renderer.settings.errors.removeFromTopic(imageTopic, CAMERA_MODEL);
+        } catch (errUnk) {
+          const err = errUnk as Error;
+          this.renderer.settings.errors.addToTopic(imageTopic, CAMERA_MODEL, err.message);
+          renderable.userData.cameraModel = undefined;
         }
       }
     }
