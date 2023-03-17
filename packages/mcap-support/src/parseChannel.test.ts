@@ -2,6 +2,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import { encode as encodeCbor } from "cbor";
 import fs from "fs";
 import { FileDescriptorSet, IFileDescriptorSet } from "protobufjs/ext/descriptor";
 
@@ -22,6 +23,23 @@ describe("parseChannel", () => {
     expect(channel.deserializer(new TextEncoder().encode(JSON.stringify({ value: "hi" })))).toEqual(
       { value: "hi" },
     );
+  });
+
+  it("works with cbor", () => {
+    const channel = parseChannel({
+      messageEncoding: "cbor",
+      schema: undefined,
+    });
+    const cborData = encodeCbor({ helloWorld: 42 });
+    expect(channel.deserializer(cborData)).toEqual({ helloWorld: 42 });
+
+    // Can deserialize array object
+    const cborData1 = encodeCbor(["string"]);
+    expect(channel.deserializer(cborData1)).toEqual(["string"]);
+
+    // Can only deserialize one object
+    const cborData2 = encodeCbor({ helloWorld: 42 }, { goodbyeWorld: 24 });
+    expect(() => channel.deserializer(cborData2)).toThrow(/Unexpected data/);
   });
 
   it("works with flatbuffer", () => {

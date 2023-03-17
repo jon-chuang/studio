@@ -2,6 +2,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import { decodeFirstSync as decodeCbor } from "cbor";
 import protobufjs from "protobufjs";
 import { FileDescriptorSet, IFileDescriptorSet } from "protobufjs/ext/descriptor";
 
@@ -76,6 +77,22 @@ export function parseChannel(channel: Channel): ParsedChannel {
           postprocessValue(JSON.parse(textDecoder.decode(data)) as Record<string, unknown>);
       }
     }
+    return { deserializer, datatypes };
+  }
+
+  if (channel.messageEncoding === "cbor") {
+    if (channel.schema != undefined) {
+      throw new Error(
+        `Message encoding ${
+          channel.messageEncoding
+        } with ${`schema encoding '${channel.schema.encoding}'`} is not supported (expected no schema)`,
+      );
+    }
+    const datatypes: MessageDefinitionMap = new Map();
+    const deserializer = (data: ArrayBufferView) =>
+      decodeCbor(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), {
+        preferWeb: true, // prefer Uint8Array
+      });
     return { deserializer, datatypes };
   }
 
