@@ -19,9 +19,9 @@ describe("parseChannel", () => {
         ),
       },
     });
-    expect(channel.deserialize(new TextEncoder().encode(JSON.stringify({ value: "hi" })))).toEqual(
-      { value: "hi" },
-    );
+    expect(channel.deserialize(new TextEncoder().encode(JSON.stringify({ value: "hi" })))).toEqual({
+      value: "hi",
+    });
   });
 
   it("works with flatbuffer", () => {
