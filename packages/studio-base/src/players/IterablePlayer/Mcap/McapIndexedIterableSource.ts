@@ -5,7 +5,7 @@
 import { McapIndexedReader, McapTypes } from "@mcap/core";
 
 import Logger from "@foxglove/log";
-import { ParsedChannel, parseChannel } from "@foxglove/mcap-support";
+import { ParsedChannel, parseChannel, channelDeserAreLoaded } from "@foxglove/mcap-support";
 import { Time, fromNanoSec, toNanoSec, compare } from "@foxglove/rostime";
 import { MessageEvent } from "@foxglove/studio";
 import {
@@ -50,6 +50,8 @@ export class McapIndexedIterableSource implements IIterableSource {
     const datatypes: RosDatatypes = new Map();
     const problems: PlayerProblem[] = [];
     const publishersByTopic = new Map<string, Set<string>>();
+
+    await channelDeserAreLoaded();
 
     for (const channel of this.reader.channelsById.values()) {
       const schema = this.reader.schemasById.get(channel.schemaId);

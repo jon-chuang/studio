@@ -10,6 +10,7 @@ import { parse as parseMessageDefinition, parseRos2idl } from "@foxglove/rosmsg"
 import { MessageReader } from "@foxglove/rosmsg-serialization";
 import { MessageReader as ROS2MessageReader } from "@foxglove/rosmsg2-serialization";
 
+import { parseCapnprotoSchema, isLoaded as capnprotoIsLoaded } from "./parseCapnprotoSchema";
 import { parseFlatbufferSchema } from "./parseFlatbufferSchema";
 import { parseJsonSchema } from "./parseJsonSchema";
 import { protobufDefinitionsToDatatypes, stripLeadingDot } from "./protobufDefinitionsToDatatypes";
@@ -90,6 +91,19 @@ export function parseChannel(channel: Channel): ParsedChannel {
       );
     }
     return parseFlatbufferSchema(channel.schema.name, channel.schema.data);
+  }
+
+  if (channel.messageEncoding === "capnproto") {
+    if (channel.schema?.encoding !== "capnproto") {
+      throw new Error(
+        `Message encoding ${channel.messageEncoding} with ${
+          channel.schema == undefined
+            ? "no encoding"
+            : `schema encoding '${channel.schema.encoding}'`
+        } is not supported (expected flatbuffer)`,
+      );
+    }
+    return parseCapnprotoSchema(channel.schema.name, channel.schema.data);
   }
 
   if (channel.messageEncoding === "protobuf") {
@@ -191,4 +205,9 @@ export function parseChannel(channel: Channel): ParsedChannel {
   }
 
   throw new Error(`Unsupported encoding ${channel.messageEncoding}`);
+}
+
+export async function channelDeserAreLoaded(): Promise<boolean> {
+  await capnprotoIsLoaded;
+  return true;
 }

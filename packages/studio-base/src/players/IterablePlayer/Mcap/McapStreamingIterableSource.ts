@@ -5,7 +5,12 @@
 import { McapStreamReader, McapTypes } from "@mcap/core";
 import { isEqual } from "lodash";
 
-import { loadDecompressHandlers, parseChannel, ParsedChannel } from "@foxglove/mcap-support";
+import {
+  channelDeserAreLoaded,
+  loadDecompressHandlers,
+  parseChannel,
+  ParsedChannel,
+} from "@foxglove/mcap-support";
 import {
   Time,
   isLessThan,
@@ -61,6 +66,7 @@ export class McapStreamingIterableSource implements IIterableSource {
       number,
       { channel: McapTypes.Channel; parsedChannel: ParsedChannel; schemaName: string | undefined }
     >();
+    await channelDeserAreLoaded();
 
     let startTime: Time | undefined;
     let endTime: Time | undefined;
